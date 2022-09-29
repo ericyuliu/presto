@@ -23,7 +23,7 @@
     </dependencySets>
 
     <fileSets>
-        <!-- bin -->
+        <!-- bin and launcher -->
         <fileSet>
             <directory>${project.build.directory}/dependency/launcher/bin</directory>
             <includes>
