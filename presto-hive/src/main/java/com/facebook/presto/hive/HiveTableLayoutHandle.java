@@ -31,23 +31,19 @@ import com.facebook.presto.spi.relation.RowExpression;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-
-import javax.annotation.Nullable;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-import static com.facebook.presto.common.predicate.TupleDomain.toLinkedMap;
-import static com.facebook.presto.common.predicate.TupleDomain.withColumnDomains;
 import static com.facebook.presto.expressions.CanonicalRowExpressionRewriter.canonicalizeRowExpression;
 import static com.facebook.presto.hive.HiveMetadata.createPredicate;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
-import static java.util.Comparator.comparing;
 import static java.util.Objects.requireNonNull;
 
 public class HiveTableLayoutHandle
@@ -69,9 +65,9 @@ public class HiveTableLayoutHandle
     private final Optional<Set<HiveColumnHandle>> requestedColumns;
     private final boolean partialAggregationsPushedDown;
     private final boolean appendRowNumberEnabled;
+
     // coordinator-only properties
-    @Nullable
-    private final List<HivePartition> partitions;
+    private final Optional<List<HivePartition>> partitions;
 
     @JsonCreator
     public HiveTableLayoutHandle(
@@ -92,32 +88,32 @@ public class HiveTableLayoutHandle
             @JsonProperty("partialAggregationsPushedDown") boolean partialAggregationsPushedDown,
             @JsonProperty("appendRowNumber") boolean appendRowNumberEnabled)
     {
-        this.schemaTableName = requireNonNull(schemaTableName, "table is null");
-        this.tablePath = requireNonNull(tablePath, "tablePath is null");
-        this.partitionColumns = ImmutableList.copyOf(requireNonNull(partitionColumns, "partitionColumns is null"));
-        this.dataColumns = ImmutableList.copyOf(requireNonNull(dataColumns, "dataColumns is null"));
-        this.tableParameters = ImmutableMap.copyOf(requireNonNull(tableParameters, "tableProperties is null"));
-        this.domainPredicate = requireNonNull(domainPredicate, "domainPredicate is null");
-        this.remainingPredicate = requireNonNull(remainingPredicate, "remainingPredicate is null");
-        this.predicateColumns = requireNonNull(predicateColumns, "predicateColumns is null");
-        this.partitionColumnPredicate = requireNonNull(partitionColumnPredicate, "partitionColumnPredicate is null");
-        this.partitions = null;
-        this.bucketHandle = requireNonNull(bucketHandle, "bucketHandle is null");
-        this.bucketFilter = requireNonNull(bucketFilter, "bucketFilter is null");
-        this.pushdownFilterEnabled = pushdownFilterEnabled;
-        this.layoutString = requireNonNull(layoutString, "layoutString is null");
-        this.requestedColumns = requireNonNull(requestedColumns, "requestedColumns is null");
-        this.partialAggregationsPushedDown = partialAggregationsPushedDown;
-        this.appendRowNumberEnabled = appendRowNumberEnabled;
+        this(
+                schemaTableName,
+                tablePath,
+                partitionColumns,
+                dataColumns,
+                tableParameters,
+                domainPredicate,
+                remainingPredicate,
+                predicateColumns,
+                partitionColumnPredicate,
+                bucketHandle,
+                bucketFilter,
+                pushdownFilterEnabled,
+                layoutString,
+                requestedColumns,
+                partialAggregationsPushedDown,
+                appendRowNumberEnabled,
+                Optional.empty());
     }
 
-    public HiveTableLayoutHandle(
+    protected HiveTableLayoutHandle(
             SchemaTableName schemaTableName,
             String tablePath,
             List<HiveColumnHandle> partitionColumns,
             List<Column> dataColumns,
             Map<String, String> tableParameters,
-            List<HivePartition> partitions,
             TupleDomain<Subfield> domainPredicate,
             RowExpression remainingPredicate,
             Map<String, HiveColumnHandle> predicateColumns,
@@ -128,14 +124,14 @@ public class HiveTableLayoutHandle
             String layoutString,
             Optional<Set<HiveColumnHandle>> requestedColumns,
             boolean partialAggregationsPushedDown,
-            boolean appendRowNumberEnabled)
+            boolean appendRowNumberEnabled,
+            Optional<List<HivePartition>> partitions)
     {
         this.schemaTableName = requireNonNull(schemaTableName, "table is null");
         this.tablePath = requireNonNull(tablePath, "tablePath is null");
         this.partitionColumns = ImmutableList.copyOf(requireNonNull(partitionColumns, "partitionColumns is null"));
         this.dataColumns = ImmutableList.copyOf(requireNonNull(dataColumns, "dataColumns is null"));
         this.tableParameters = ImmutableMap.copyOf(requireNonNull(tableParameters, "tableProperties is null"));
-        this.partitions = requireNonNull(partitions, "partitions is null");
         this.domainPredicate = requireNonNull(domainPredicate, "domainPredicate is null");
         this.remainingPredicate = requireNonNull(remainingPredicate, "remainingPredicate is null");
         this.predicateColumns = requireNonNull(predicateColumns, "predicateColumns is null");
@@ -147,6 +143,7 @@ public class HiveTableLayoutHandle
         this.requestedColumns = requireNonNull(requestedColumns, "requestedColumns is null");
         this.partialAggregationsPushedDown = partialAggregationsPushedDown;
         this.appendRowNumberEnabled = appendRowNumberEnabled;
+        this.partitions = requireNonNull(partitions, "partitions is null");
     }
 
     @JsonProperty
@@ -187,7 +184,7 @@ public class HiveTableLayoutHandle
     @JsonIgnore
     public Optional<List<HivePartition>> getPartitions()
     {
-        return Optional.ofNullable(partitions);
+        return partitions;
     }
 
     @JsonProperty
@@ -285,7 +282,7 @@ public class HiveTableLayoutHandle
         // which is unrelated to identifier purpose, or has already been applied as the boundary of split.
         return ImmutableMap.builder()
                 .put("schemaTableName", schemaTableName)
-                .put("domainPredicate", domainPredicate.canonicalize(false))
+                .put("domainPredicate", canonicalizeDomainPredicate(domainPredicate, getPredicateColumns(), canonicalizationStrategy))
                 .put("remainingPredicate", canonicalizeRowExpression(remainingPredicate, false))
                 .put("constraint", getConstraint(canonicalizationStrategy))
                 // TODO: Decide what to do with bucketFilter when canonicalizing
@@ -303,19 +300,31 @@ public class HiveTableLayoutHandle
         // Constants are only removed from point checks, and not range checks. Example:
         // `x = 1` is equivalent to `x = 1000`
         // `x > 1` is NOT equivalent to `x > 1000`
-        TupleDomain<ColumnHandle> constraint = createPredicate(ImmutableList.copyOf(partitionColumns), partitions);
-        if (pushdownFilterEnabled) {
-            constraint = getDomainPredicate()
-                    .transform(subfield -> subfield.getPath().isEmpty() ? subfield.getRootName() : null)
-                    .transform(getPredicateColumns()::get)
-                    .transform(ColumnHandle.class::cast)
-                    .intersect(constraint);
-        }
+        TupleDomain<ColumnHandle> constraint = createPredicate(ImmutableList.copyOf(partitionColumns), partitions.get());
+        constraint = getDomainPredicate()
+                .transform(subfield -> subfield.getPath().isEmpty() ? subfield.getRootName() : null)
+                .transform(getPredicateColumns()::get)
+                .transform(ColumnHandle.class::cast)
+                .intersect(constraint);
 
-        constraint = withColumnDomains(constraint.getDomains().get().entrySet().stream()
-                .sorted(comparing(entry -> entry.getKey().toString()))
-                .collect(toLinkedMap(Map.Entry::getKey, entry -> entry.getValue().canonicalize(isPartitionKey(entry.getKey())))));
+        constraint = constraint.canonicalize(HiveTableLayoutHandle::isPartitionKey);
         return constraint;
+    }
+
+    @VisibleForTesting
+    public static TupleDomain<Subfield> canonicalizeDomainPredicate(TupleDomain<Subfield> domainPredicate, Map<String, HiveColumnHandle> predicateColumns, PlanCanonicalizationStrategy strategy)
+    {
+        if (strategy == PlanCanonicalizationStrategy.DEFAULT) {
+            return domainPredicate.canonicalize(ignored -> false);
+        }
+        return domainPredicate
+                .transform(subfield -> {
+                    if (!subfield.getPath().isEmpty() || !predicateColumns.containsKey(subfield.getRootName())) {
+                        return subfield;
+                    }
+                    return isPartitionKey(predicateColumns.get(subfield.getRootName())) ? null : subfield;
+                })
+                .canonicalize(ignored -> false);
     }
 
     private static boolean isPartitionKey(ColumnHandle columnHandle)
@@ -326,5 +335,180 @@ public class HiveTableLayoutHandle
     public Table getTable(SemiTransactionalHiveMetastore metastore, MetastoreContext metastoreContext)
     {
         return metastore.getTable(metastoreContext, schemaTableName.getSchemaName(), schemaTableName.getTableName()).orElseThrow(() -> new TableNotFoundException(schemaTableName));
+    }
+
+    public Builder builder()
+    {
+        return new Builder()
+                .setSchemaTableName(getSchemaTableName())
+                .setTablePath(getTablePath())
+                .setPartitionColumns(getPartitionColumns())
+                .setDataColumns(getDataColumns())
+                .setTableParameters(getTableParameters())
+                .setDomainPredicate(getDomainPredicate())
+                .setRemainingPredicate(getRemainingPredicate())
+                .setPredicateColumns(getPredicateColumns())
+                .setPartitionColumnPredicate(getPartitionColumnPredicate())
+                .setBucketHandle(getBucketHandle())
+                .setBucketFilter(getBucketFilter())
+                .setPushdownFilterEnabled(isPushdownFilterEnabled())
+                .setLayoutString(getLayoutString())
+                .setRequestedColumns(getRequestedColumns())
+                .setPartialAggregationsPushedDown(isPartialAggregationsPushedDown())
+                .setAppendRowNumberEnabled(isAppendRowNumberEnabled())
+                .setPartitions(getPartitions());
+    }
+
+    public static class Builder
+    {
+        private SchemaTableName schemaTableName;
+        private String tablePath;
+        private List<HiveColumnHandle> partitionColumns;
+        private List<Column> dataColumns;
+        private Map<String, String> tableParameters;
+        private TupleDomain<Subfield> domainPredicate;
+        private RowExpression remainingPredicate;
+        private Map<String, HiveColumnHandle> predicateColumns;
+        private TupleDomain<ColumnHandle> partitionColumnPredicate;
+        private Optional<HiveBucketHandle> bucketHandle;
+        private Optional<HiveBucketFilter> bucketFilter;
+        private boolean pushdownFilterEnabled;
+        private String layoutString;
+        private Optional<Set<HiveColumnHandle>> requestedColumns;
+        private boolean partialAggregationsPushedDown;
+        private boolean appendRowNumberEnabled;
+
+        private Optional<List<HivePartition>> partitions;
+
+        public Builder setSchemaTableName(SchemaTableName schemaTableName)
+        {
+            this.schemaTableName = schemaTableName;
+            return this;
+        }
+
+        public Builder setTablePath(String tablePath)
+        {
+            this.tablePath = tablePath;
+            return this;
+        }
+
+        public Builder setPartitionColumns(List<HiveColumnHandle> partitionColumns)
+        {
+            this.partitionColumns = partitionColumns;
+            return this;
+        }
+
+        public Builder setDataColumns(List<Column> dataColumns)
+        {
+            this.dataColumns = dataColumns;
+            return this;
+        }
+
+        public Builder setTableParameters(Map<String, String> tableParameters)
+        {
+            this.tableParameters = tableParameters;
+            return this;
+        }
+
+        public Builder setDomainPredicate(TupleDomain<Subfield> domainPredicate)
+        {
+            this.domainPredicate = domainPredicate;
+            return this;
+        }
+
+        public Builder setRemainingPredicate(RowExpression remainingPredicate)
+        {
+            this.remainingPredicate = remainingPredicate;
+            return this;
+        }
+
+        public Builder setPredicateColumns(Map<String, HiveColumnHandle> predicateColumns)
+        {
+            this.predicateColumns = predicateColumns;
+            return this;
+        }
+
+        public Builder setPartitionColumnPredicate(TupleDomain<ColumnHandle> partitionColumnPredicate)
+        {
+            this.partitionColumnPredicate = partitionColumnPredicate;
+            return this;
+        }
+
+        public Builder setBucketHandle(Optional<HiveBucketHandle> bucketHandle)
+        {
+            this.bucketHandle = bucketHandle;
+            return this;
+        }
+
+        public Builder setBucketFilter(Optional<HiveBucketFilter> bucketFilter)
+        {
+            this.bucketFilter = bucketFilter;
+            return this;
+        }
+
+        public Builder setPushdownFilterEnabled(boolean pushdownFilterEnabled)
+        {
+            this.pushdownFilterEnabled = pushdownFilterEnabled;
+            return this;
+        }
+
+        public Builder setLayoutString(String layoutString)
+        {
+            this.layoutString = layoutString;
+            return this;
+        }
+
+        public Builder setRequestedColumns(Optional<Set<HiveColumnHandle>> requestedColumns)
+        {
+            this.requestedColumns = requestedColumns;
+            return this;
+        }
+
+        public Builder setPartialAggregationsPushedDown(boolean partialAggregationsPushedDown)
+        {
+            this.partialAggregationsPushedDown = partialAggregationsPushedDown;
+            return this;
+        }
+
+        public Builder setAppendRowNumberEnabled(boolean appendRowNumberEnabled)
+        {
+            this.appendRowNumberEnabled = appendRowNumberEnabled;
+            return this;
+        }
+
+        public Builder setPartitions(List<HivePartition> partitions)
+        {
+            requireNonNull(partitions, "partitions is null");
+            return setPartitions(Optional.of(partitions));
+        }
+
+        public Builder setPartitions(Optional<List<HivePartition>> partitions)
+        {
+            requireNonNull(partitions, "partitions is null");
+            this.partitions = partitions;
+            return this;
+        }
+
+        public HiveTableLayoutHandle build()
+        {
+            return new HiveTableLayoutHandle(
+                    schemaTableName,
+                    tablePath,
+                    partitionColumns,
+                    dataColumns,
+                    tableParameters,
+                    domainPredicate,
+                    remainingPredicate,
+                    predicateColumns,
+                    partitionColumnPredicate,
+                    bucketHandle,
+                    bucketFilter,
+                    pushdownFilterEnabled,
+                    layoutString,
+                    requestedColumns,
+                    partialAggregationsPushedDown,
+                    appendRowNumberEnabled,
+                    partitions);
+        }
     }
 }

@@ -19,7 +19,6 @@ import com.facebook.presto.operator.aggregation.arrayagg.ArrayAggGroupImplementa
 import com.facebook.presto.operator.aggregation.histogram.HistogramGroupImplementation;
 import com.facebook.presto.operator.aggregation.multimapagg.MultimapAggGroupImplementation;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.AggregationIfToFilterRewriteStrategy;
-import com.facebook.presto.sql.analyzer.FeaturesConfig.AnalyzerType;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.JoinDistributionType;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.JoinReorderingStrategy;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.PartialAggregationStrategy;
@@ -34,9 +33,9 @@ import java.util.Map;
 
 import static com.facebook.airlift.configuration.testing.ConfigAssertions.assertFullMapping;
 import static com.facebook.airlift.configuration.testing.ConfigAssertions.assertRecordedDefaults;
+import static com.facebook.presto.sql.analyzer.AnalyzerType.NATIVE;
 import static com.facebook.presto.sql.analyzer.FeaturesConfig.AggregationPartitioningMergingStrategy.LEGACY;
 import static com.facebook.presto.sql.analyzer.FeaturesConfig.AggregationPartitioningMergingStrategy.TOP_DOWN;
-import static com.facebook.presto.sql.analyzer.FeaturesConfig.AnalyzerType.NATIVE;
 import static com.facebook.presto.sql.analyzer.FeaturesConfig.JoinDistributionType.BROADCAST;
 import static com.facebook.presto.sql.analyzer.FeaturesConfig.JoinReorderingStrategy.NONE;
 import static com.facebook.presto.sql.analyzer.FeaturesConfig.PartialMergePushdownStrategy.PUSH_THROUGH_LOW_MEMORY_OPERATORS;
@@ -161,6 +160,7 @@ public class TestFeaturesConfig
                 .setLegacyUnnestArrayRows(false)
                 .setJsonSerdeCodeGenerationEnabled(false)
                 .setPushLimitThroughOuterJoin(true)
+                .setOptimizeConstantGroupingKeys(true)
                 .setMaxConcurrentMaterializations(3)
                 .setPushdownSubfieldsEnabled(false)
                 .setPushdownDereferenceEnabled(false)
@@ -211,7 +211,10 @@ public class TestFeaturesConfig
                 .setNativeExecutionEnabled(false)
                 .setNativeExecutionExecutablePath("./presto_server")
                 .setRandomizeOuterJoinNullKeyEnabled(false)
-                .setOptimizeConditionalAggregationEnabled(false));
+                .setOptimizeConditionalAggregationEnabled(false)
+                .setRemoveRedundantDistinctAggregationEnabled(true)
+                .setInPredicatesAsInnerJoinsEnabled(false)
+                .setPushAggregationBelowJoinByteReductionThreshold(1));
     }
 
     @Test
@@ -321,6 +324,7 @@ public class TestFeaturesConfig
                 .put("deprecated.legacy-unnest-array-rows", "true")
                 .put("experimental.json-serde-codegen-enabled", "true")
                 .put("optimizer.push-limit-through-outer-join", "false")
+                .put("optimizer.optimize-constant-grouping-keys", "false")
                 .put("max-concurrent-materializations", "5")
                 .put("experimental.pushdown-subfields-enabled", "true")
                 .put("experimental.pushdown-dereference-enabled", "true")
@@ -372,6 +376,9 @@ public class TestFeaturesConfig
                 .put("native-execution-executable-path", "/bin/echo")
                 .put("optimizer.randomize-outer-join-null-key", "true")
                 .put("optimizer.optimize-conditional-aggregation-enabled", "true")
+                .put("optimizer.remove-redundant-distinct-aggregation-enabled", "false")
+                .put("optimizer.in-predicates-as-inner-joins-enabled", "true")
+                .put("optimizer.push-aggregation-below-join-byte-reduction-threshold", "0.9")
                 .build();
 
         FeaturesConfig expected = new FeaturesConfig()
@@ -478,6 +485,7 @@ public class TestFeaturesConfig
                 .setDefaultFilterFactorEnabled(true)
                 .setJsonSerdeCodeGenerationEnabled(true)
                 .setPushLimitThroughOuterJoin(false)
+                .setOptimizeConstantGroupingKeys(false)
                 .setMaxConcurrentMaterializations(5)
                 .setPushdownSubfieldsEnabled(true)
                 .setPushdownDereferenceEnabled(true)
@@ -529,7 +537,10 @@ public class TestFeaturesConfig
                 .setNativeExecutionEnabled(true)
                 .setNativeExecutionExecutablePath("/bin/echo")
                 .setRandomizeOuterJoinNullKeyEnabled(true)
-                .setOptimizeConditionalAggregationEnabled(true);
+                .setOptimizeConditionalAggregationEnabled(true)
+                .setRemoveRedundantDistinctAggregationEnabled(false)
+                .setInPredicatesAsInnerJoinsEnabled(true)
+                .setPushAggregationBelowJoinByteReductionThreshold(0.9);
         assertFullMapping(properties, expected);
     }
 

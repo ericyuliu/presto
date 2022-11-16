@@ -65,13 +65,19 @@ jobs:
           cd ${GITHUB_WORKSPACE}/presto-native-execution
           make velox-submodule
           cmake -B _build/debug -GNinja -DTREAT_WARNINGS_AS_ERRORS=1 -DENABLE_ALL_WARNINGS=1 -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH=/usr/local -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-          ninja -C _build/debug -j 2
+          ninja -C _build/debug -j 1
           ccache -s
 
       - name: Run unit tests
         run: |
           cd ${GITHUB_WORKSPACE}/presto-native-execution/_build/debug
           ctest -j 1 -VV --output-on-failure --exclude-regex velox.*
+
+      - name: Delete build files
+        run: |
+          cd ${GITHUB_WORKSPACE}/presto-native-execution/_build/debug
+          # Delete static libraries
+          rm `find ./ -name lib\*.a` 
 
       - name: Cache local Maven repository
         id: cache-maven
@@ -89,7 +95,7 @@ jobs:
       - name: Maven Install
         run: |
           export MAVEN_OPTS="${MAVEN_INSTALL_OPTS}"
-          ./mvnw install ${MAVEN_FAST_INSTALL} -pl '!presto-docs,!presto-server,!presto-server-rpm'
+          ./mvnw install ${MAVEN_FAST_INSTALL} -pl '!presto-docs,!presto-server,!presto-server-rpm,!presto-test-coverage'
 
       - name: Run e2e tests
         run: |

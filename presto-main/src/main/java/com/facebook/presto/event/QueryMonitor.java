@@ -214,7 +214,8 @@ public class QueryMonitor
                 ImmutableList.of(),
                 ImmutableList.of(),
                 ImmutableList.of(),
-                Optional.empty()));
+                Optional.empty(),
+                ImmutableList.of()));
 
         logQueryTimeline(queryInfo);
     }
@@ -246,7 +247,8 @@ public class QueryMonitor
                         createOperatorStatistics(queryInfo),
                         createPlanStatistics(queryInfo.getPlanStatsAndCosts()),
                         historyBasedPlanStatisticsTracker.getQueryStats(queryInfo).values().stream().collect(toImmutableList()),
-                        queryInfo.getExpandedQuery()));
+                        queryInfo.getExpandedQuery(),
+                        queryInfo.getOptimizerInformation()));
 
         logQueryTimeline(queryInfo);
     }
@@ -326,7 +328,7 @@ public class QueryMonitor
         return new QueryStatistics(
                 ofMillis(queryStats.getTotalCpuTime().toMillis()),
                 ofMillis(queryStats.getRetriedCpuTime().toMillis()),
-                ofMillis(queryStats.getTotalScheduledTime().toMillis()),
+                ofMillis(queryStats.getElapsedTime().toMillis()),
                 ofMillis(queryStats.getWaitingForPrerequisitesTime().toMillis()),
                 ofMillis(queryStats.getQueuedTime().toMillis()),
                 ofMillis(queryStats.getResourceWaitingTime().toMillis()),

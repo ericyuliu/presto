@@ -121,6 +121,7 @@ import com.facebook.presto.operator.scalar.ArrayNotEqualOperator;
 import com.facebook.presto.operator.scalar.ArrayPositionFunction;
 import com.facebook.presto.operator.scalar.ArrayPositionWithIndexFunction;
 import com.facebook.presto.operator.scalar.ArrayRemoveFunction;
+import com.facebook.presto.operator.scalar.ArrayRemoveNullsFunction;
 import com.facebook.presto.operator.scalar.ArrayReverseFunction;
 import com.facebook.presto.operator.scalar.ArrayShuffleFunction;
 import com.facebook.presto.operator.scalar.ArraySliceFunction;
@@ -179,6 +180,7 @@ import com.facebook.presto.operator.scalar.WilsonInterval;
 import com.facebook.presto.operator.scalar.WordStemFunction;
 import com.facebook.presto.operator.scalar.sql.ArraySqlFunctions;
 import com.facebook.presto.operator.scalar.sql.MapNormalizeFunction;
+import com.facebook.presto.operator.scalar.sql.MapSqlFunctions;
 import com.facebook.presto.operator.scalar.sql.SimpleSamplingPercent;
 import com.facebook.presto.operator.window.CumulativeDistributionFunction;
 import com.facebook.presto.operator.window.DenseRankFunction;
@@ -781,6 +783,7 @@ public class BuiltInTypeAndFunctionNamespaceManager
                 .scalar(ArrayLessThanOperator.class)
                 .scalar(ArrayLessThanOrEqualOperator.class)
                 .scalar(ArrayRemoveFunction.class)
+                .scalar(ArrayRemoveNullsFunction.class)
                 .scalar(ArrayGreaterThanOperator.class)
                 .scalar(ArrayGreaterThanOrEqualOperator.class)
                 .scalar(ArrayElementAtFunction.class)
@@ -895,6 +898,7 @@ public class BuiltInTypeAndFunctionNamespaceManager
                 .sqlInvokedScalar(MapNormalizeFunction.class)
                 .sqlInvokedScalars(ArraySqlFunctions.class)
                 .sqlInvokedScalars(ArrayIntersectFunction.class)
+                .sqlInvokedScalars(MapSqlFunctions.class)
                 .sqlInvokedScalars(SimpleSamplingPercent.class)
                 .scalar(DynamicFilterPlaceholderFunction.class)
                 .scalars(EnumCasts.class)

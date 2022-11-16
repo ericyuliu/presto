@@ -148,7 +148,7 @@ class TaskManagerTest : public testing::Test {
     connector::registerConnector(hiveConnector);
     dwrf::registerDwrfReaderFactory();
 
-    pool_ = memory::getDefaultScopedMemoryPool();
+    pool_ = memory::getDefaultMemoryPool();
     rowType_ = ROW({"c0", "c1"}, {INTEGER(), VARCHAR()});
 
     taskManager_ = std::make_unique<TaskManager>();
@@ -223,11 +223,11 @@ class TaskManagerTest : public testing::Test {
       const std::string& filePath,
       long sequenceId) {
     auto hiveSplit = std::make_shared<protocol::HiveSplit>();
-    hiveSplit->path = filePath;
+    hiveSplit->fileSplit.path = filePath;
     hiveSplit->storage.storageFormat.inputFormat =
         "com.facebook.hive.orc.OrcInputFormat";
-    hiveSplit->start = 0;
-    hiveSplit->length = fs::file_size(filePath);
+    hiveSplit->fileSplit.start = 0;
+    hiveSplit->fileSplit.length = fs::file_size(filePath);
 
     protocol::ScheduledSplit split;
     split.split.connectorId = facebook::velox::exec::test::kHiveConnectorId;
@@ -520,7 +520,7 @@ class TaskManagerTest : public testing::Test {
         fmt::format("{}B", totalMax));
   }
 
-  std::unique_ptr<memory::MemoryPool> pool_;
+  std::shared_ptr<memory::MemoryPool> pool_;
   RowTypePtr rowType_;
   exec::test::DuckDbQueryRunner duckDbQueryRunner_;
   std::unique_ptr<TaskManager> taskManager_;

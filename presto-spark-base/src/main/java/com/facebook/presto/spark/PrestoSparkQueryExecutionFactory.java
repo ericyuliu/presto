@@ -77,8 +77,8 @@ import com.facebook.presto.spi.security.AccessControlContext;
 import com.facebook.presto.spi.security.Identity;
 import com.facebook.presto.spi.storage.TempStorage;
 import com.facebook.presto.sql.analyzer.AnalyzerOptions;
-import com.facebook.presto.sql.analyzer.QueryPreparer;
-import com.facebook.presto.sql.analyzer.QueryPreparer.PreparedQuery;
+import com.facebook.presto.sql.analyzer.BuiltInQueryPreparer;
+import com.facebook.presto.sql.analyzer.BuiltInQueryPreparer.BuiltInPreparedQuery;
 import com.facebook.presto.sql.analyzer.utils.StatementUtils;
 import com.facebook.presto.sql.planner.PartitioningProviderManager;
 import com.facebook.presto.sql.planner.SubPlan;
@@ -108,6 +108,7 @@ import java.net.URI;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -150,7 +151,7 @@ public class PrestoSparkQueryExecutionFactory
 
     private final QueryIdGenerator queryIdGenerator;
     private final QuerySessionSupplier sessionSupplier;
-    private final QueryPreparer queryPreparer;
+    private final BuiltInQueryPreparer queryPreparer;
     private final PrestoSparkQueryPlanner queryPlanner;
     private final PrestoSparkPlanFragmenter planFragmenter;
     private final PrestoSparkRddFactory rddFactory;
@@ -184,7 +185,7 @@ public class PrestoSparkQueryExecutionFactory
     public PrestoSparkQueryExecutionFactory(
             QueryIdGenerator queryIdGenerator,
             QuerySessionSupplier sessionSupplier,
-            QueryPreparer queryPreparer,
+            BuiltInQueryPreparer queryPreparer,
             PrestoSparkQueryPlanner queryPlanner,
             PrestoSparkPlanFragmenter planFragmenter,
             PrestoSparkRddFactory rddFactory,
@@ -344,6 +345,7 @@ public class PrestoSparkQueryExecutionFactory
                 ImmutableMap.of(),
                 ImmutableSet.of(),
                 StatsAndCosts.empty(),
+                ImmutableList.of(),
                 ImmutableList.of());
     }
 
@@ -579,6 +581,11 @@ public class PrestoSparkQueryExecutionFactory
             // Update presto settings in Session, if present
             Session.SessionBuilder sessionBuilder = Session.builder(session);
             prestoSparkRetryExecutionSettings.getPrestoSettings().forEach(sessionBuilder::setSystemProperty);
+
+            Set<String> clientTags = new HashSet<>(session.getClientTags());
+            clientTags.add(retryExecutionStrategy.get().name());
+            sessionBuilder.setClientTags(clientTags);
+
             session = sessionBuilder.build();
         }
 
@@ -615,9 +622,9 @@ public class PrestoSparkQueryExecutionFactory
             queryStateTimer.beginAnalyzing();
 
             AnalyzerOptions analyzerOptions = createAnalyzerOptions(session, warningCollector);
-            PreparedQuery preparedQuery = queryPreparer.prepareQuery(analyzerOptions, sql, session.getPreparedStatements(), warningCollector);
+            BuiltInPreparedQuery preparedQuery = queryPreparer.prepareQuery(analyzerOptions, sql, session.getPreparedStatements(), warningCollector);
             Optional<QueryType> queryType = StatementUtils.getQueryType(preparedQuery.getStatement().getClass());
-            if (queryType.isPresent() && (queryType.get() == QueryType.DATA_DEFINITION)) {
+            if (queryType.isPresent() && (queryType.get() == QueryType.DATA_DEFINITION || queryType.get() == QueryType.CONTROL)) {
                 queryStateTimer.endAnalysis();
                 DDLDefinitionTask<?> task = (DDLDefinitionTask<?>) ddlTasks.get(preparedQuery.getStatement().getClass());
                 return new PrestoSparkDataDefinitionExecution(task, preparedQuery.getStatement(), transactionManager, accessControl, metadata, session, queryStateTimer, warningCollector);
